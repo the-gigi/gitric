@@ -16,17 +16,24 @@ def force_push():
     env.gitric_force_push = True
 
 
-def git_seed(repo_path, commit=None, ignore_untracked_files=False):
+def git_seed(repo_path, 
+             commit=None, 
+             always_push_to_master=True, 
+             ignore_untracked_files=False):
     '''seed a remote git repository'''
     commit = _get_commit(commit)
     force = ('gitric_force_push' in env) and '-f' or ''
-
     dirty_working_copy = _is_dirty(commit, ignore_untracked_files)
+    print 'dirty_working_copy:', dirty_working_copy
+    print '"gitric_allow_dirty" in env:', 'gitric_allow_dirty' in env
+    
+    
     if dirty_working_copy and 'gitric_allow_dirty' not in env:
         abort(
             'Working copy is dirty. This check can be overridden by\n'
             'importing gitric.api.allow_dirty and adding allow_dirty to your '
             'call.')
+    
     # initialize the remote repository (idempotent)
     run('git init %s' % repo_path)
     # silence git complaints about pushes coming in on the current branch
@@ -34,12 +41,18 @@ def git_seed(repo_path, commit=None, ignore_untracked_files=False):
     # working copy
     run('GIT_DIR=%s/.git git config receive.denyCurrentBranch ignore' %
         repo_path)
+        
+    # Gigi - push to corresponding remote branch and NOT always to master
+    target_branch = 'master'
+    if not always_push_to_master:
+        target_branch = local('git rev-parse --abbrev-ref HEAD', capture=True)
+        
     # a target doesn't need to keep track of which branch it is on so we always
     # push to its "master"
     with settings(warn_only=True):
         push = local(
-            'git push git+ssh://%s@%s:%s%s %s:refs/heads/master %s' % (
-                env.user, env.host, env.port, repo_path, commit, force))
+            'git push git+ssh://%s@%s:%s%s %s:refs/heads/%s %s' % (
+                env.user, env.host, env.port, repo_path, commit, target_branch, force))
     if push.failed:
         abort(
             '%s is a non-fast-forward\n'
@@ -59,8 +72,8 @@ def _get_commit(commit):
         # if no commit is specified we will push HEAD
         commit = local('git rev-parse HEAD', capture=True)
     return commit
-
+    
 
 def _is_dirty(commit, ignore_untracked_files):
     untracked_files = '--untracked-files=no' if ignore_untracked_files else '' 
-    return local('git status %s --porcelain' % untracked_files, capture=True) != ''
+    return local('git status %s --porcelain' % untracked_files, capture=True) != ''   
